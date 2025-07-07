@@ -1,10 +1,15 @@
 import asyncio
 import aioimaplib
-from aiogram import Bot, Dispatcher, types
+
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
+from aiogram.types import Message
+
 from email import message_from_bytes
 from config import Config
+
 from database.crud import get_last_uid, update_last_uid
+from keyboards import start_kb, BTN_START
 
 import logging
 
@@ -22,8 +27,14 @@ async def cmd_start(message: types.Message):
     Приветствие при /start.
     В дальнейшем сюда добавится проверка телефона / кода.
     """
-    await message.answer("Приветствуем! Вы подписались на уведомления от Superset.")
-    logger.info("User %s нажал /start", message.from_user.id)
+    await message.answer("Нажмите «Старт», чтобы подписаться.", reply_markup=start_kb)
+    logger.info("User %s получил клавиатуру Start", message.from_user.id)
+
+@dp.message(F.text == BTN_START)
+async def start_button(message: Message):
+    """Обработчик нажатия кнопки Старт"""
+    await message.answer("👋 Приветствуем! Вы подписались на уведомления от Superset.")
+    logger.info("User %s нажал кнопку Старт", message.from_user.id)
 
 
 async def handle_email(email_msg):
@@ -171,9 +182,6 @@ async def imap_idle_listener():
 
                             # Затем отправляем все PDF-вложения
                             for filename, payload in attachments:
-                                with open("debug.pdf", "wb") as f:  # Для отладки
-                                    f.write(payload)
-                                logger.info(f"Сохранён debug.pdf для проверки")
 
                                 await bot.send_document(
                                     Config.TELEGRAM_CHAT_ID,
