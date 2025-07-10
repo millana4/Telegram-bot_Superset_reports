@@ -1,18 +1,16 @@
 import asyncio
 import aioimaplib
+import logging
 
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
-from aiogram.types import Message
-
 from email import message_from_bytes
 from config import Config
 
 import database.sync as sync
 from database.crud import get_last_uid, update_last_uid
-from keyboards import start_kb, BTN_START
+from handlers import router
+from middlewares.db_session import DbSessionMiddleware
 
-import logging
 
 # Инициализация бота
 bot = Bot(token=Config.BOT_TOKEN)
@@ -21,21 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 dp = Dispatcher()
-
-@dp.message(CommandStart())
-async def cmd_start(message: types.Message):
-    """
-    Приветствие при /start.
-    В дальнейшем сюда добавится проверка телефона / кода.
-    """
-    await message.answer("Нажмите «Старт», чтобы подписаться.", reply_markup=start_kb)
-    logger.info("User %s получил клавиатуру Start", message.from_user.id)
-
-@dp.message(F.text == BTN_START)
-async def start_button(message: Message):
-    """Обработчик нажатия кнопки Старт"""
-    await message.answer("👋 Приветствуем! Вы подписались на уведомления от Superset.")
-    logger.info("User %s нажал кнопку Старт", message.from_user.id)
+dp.message.middleware(DbSessionMiddleware())  # для message-хендлеров
 
 
 async def handle_email(email_msg):
@@ -216,6 +200,8 @@ async def main():
 
     loop = asyncio.get_running_loop()
     sync.start_sync(loop)
+
+    dp.include_router(router)
 
     # параллельный запуск
     await asyncio.gather(
