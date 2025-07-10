@@ -13,10 +13,14 @@ class Config:
     IMAP_EMAIL = os.getenv("IMAP_EMAIL")
     IMAP_PASSWORD = os.getenv("IMAP_PASSWORD")
 
-    ALLOWED_EMAIL_DOMAINS = ["votonia.ru", "mavis.ru"]
-
     POSTGRES_USER = os.getenv("POSTGRES_USER")
     POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
     POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
     POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
     POSTGRES_DB = os.getenv("POSTGRES_DB")
+
+    SEATABLE_API_URL = os.getenv("SEATABLE_API_URL")
+    SEATABLE_API_TOKEN = os.getenv("SEATABLE_API_TOKEN")
+    SEATABLE_USERS_TABLE_ID = os.getenv("SEATABLE_USERS_TABLE_ID")
+    SEATABLE_EMAIL_TABLE_ID = os.getenv("SEATABLE_EMAIL_TABLE_ID")
+    SYNC_TIME_UTC = os.getenv("SYNC_TIME_UTC")

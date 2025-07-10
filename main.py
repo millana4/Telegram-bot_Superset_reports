@@ -8,6 +8,7 @@ from aiogram.types import Message
 from email import message_from_bytes
 from config import Config
 
+import database.sync as sync
 from database.crud import get_last_uid, update_last_uid
 from keyboards import start_kb, BTN_START
 
@@ -212,6 +213,9 @@ async def main():
     """
     me = await bot.get_me()
     logger.info("Telegram bot @%s запущен", me.username)
+
+    loop = asyncio.get_running_loop()
+    sync.start_sync(loop)
 
     # параллельный запуск
     await asyncio.gather(

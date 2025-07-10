@@ -1,9 +1,38 @@
+from unicodedata import normalize
+
 from database import AsyncSessionLocal
 from sqlalchemy import select
 from database.models import User
+from utils.phone import normalize_phone
 import logging
 
 logger = logging.getLogger(__name__)
+
+async def insert_new_users(rows):
+    """Добавляет в базу данных новых пользователей из SeaTable"""
+    async with AsyncSessionLocal() as session:
+        # ждём результат stream()
+        result = await session.stream(select(User.phone))
+
+        # уже по result идём async‑циклом
+        db_phones = {r[0] async for r in result}
+
+        added = 0
+        for row in rows:
+            raw_phone = row["phone"]
+            phone = normalize_phone(raw_phone)
+
+            if not phone or phone in db_phones:
+                continue  # пустой или уже есть
+
+            session.add(User(phone=phone))
+            added += 1
+
+        if added:
+            await session.commit()
+            logger.info("В базу добавлено %s новых пользователей", added)
+        else:
+            logger.info("Сегодня новые пользователи не добавлены")
 
 
 async def get_last_uid(email: str) -> str | None:
