@@ -11,7 +11,7 @@ async def get_base_token() -> Optional[Dict]:
     Возвращает словарь:
     {
         "app_name": "ssetuser",
-        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTIzMjY4NTAsImR0YWJsZV91dWlkIjoiNGNhY2ZiMWEtN2Q2OS00NWVjLWIxODEtOTUyYjkxM2UxNDgzIiwicGVybWlzc2lvbiI6InIiLCJvcmdfaWQiOjYyMDMxLCJvd25lcl9pZCI6IjUxNTUwMjdiNjZkNDQ1YmI5NmNjZjVhOWY3NDUyY2U0QGF1dGgubG9jYWwiLCJhcHBfbmFtZSI6InNzZXR1c2VyIiwidXNlcm5hbWUiOiIiLCJpZF9pbl9vcmciOiIiLCJ1c2VyX2RlcGFydG1lbnRfaWRzX21hcCI6eyJjdXJyZW50X3VzZXJfZGVwYXJ0bWVudF9pZHMiOltdLCJjdXJyZW50X3VzZXJfZGVwYXJ0bWVudF9hbmRfc3ViX2lkcyI6W119fQ.2C1CdO6N9fFE61rV_03WsqoL-ADTUG5Je5kEN03tG2E",
+        "access_token": "some_token_string",
         "dtable_uuid": "4cacfb1a-7d69-45ec-b181-952b913e1483",
         "workspace_id": 82533,
         "dtable_name": "users_sset-grp",
@@ -126,7 +126,6 @@ async def fetch_tables(tablename) -> List[Dict]:
                     return []
 
                 data = await response.json()
-                print(data)
                 return data
 
     except Exception as e:

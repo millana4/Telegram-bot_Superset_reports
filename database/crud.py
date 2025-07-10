@@ -1,38 +1,110 @@
-from unicodedata import normalize
-
 from database import AsyncSessionLocal
 from sqlalchemy import select
 from database.models import User
+from database.seatable_client import fetch_tables
+from config import Config
 from utils.phone import normalize_phone
 import logging
 
 logger = logging.getLogger(__name__)
 
-async def insert_new_users(rows):
-    """Добавляет в базу данных новых пользователей из SeaTable"""
+async def insert_new_users():
+    """Синхронизирует пользователей из SeaTable с БД PostgreSQL"""
+
+    # Получаем данные из SeaTable
+    sea_users_data = await fetch_tables(Config.SEATABLE_USERS_TABLE_ID)
+    sea_groups_data = await fetch_tables(Config.SEATABLE_EMAIL_TABLE_ID)
+
+    if not sea_users_data or not sea_groups_data:
+        logger.error("Не удалось получить данные из одной из таблиц SeaTable.")
+        return
+
+    sea_users = sea_users_data.get("rows", [])
+    sea_groups = sea_groups_data.get("rows", [])
+
+    # Маппим user_id из users -> (phone, name, row_id)
+    seatable_users_by_id = {}
+    for u in sea_users:
+        if not isinstance(u, dict):
+            continue
+
+        items = list(u.items())
+
+        # Пропускаем, если нет хотя бы двух полей + _id
+        if len(items) < 2 or "_id" not in u:
+            continue
+
+        # Предполагаем: 1-й — имя, 2-й — телефон
+        name = items[0][1]
+        phone_raw = items[1][1]
+        phone = normalize_phone(phone_raw)
+
+        if not phone:
+            continue
+
+        seatable_users_by_id[u["_id"]] = {
+            "name": name,
+            "phone": phone,
+            "row_id": u["_id"]
+        }
+
+    # Маппим user_id -> email из второй таблицы
+    emails_by_user_id = {}
+    for g in sea_groups:
+        if not isinstance(g, dict):
+            continue
+
+        items = list(g.items())
+
+        # Ищем список с вложенными словарями
+        group_links = next((v for k, v in items if isinstance(v, list) and v and isinstance(v[0], dict)), [])
+
+        # Ищем email среди строковых значений, ключ которых не начинается с "_" (не служебные поля)
+        email = next(
+            (v for k, v in items if isinstance(v, str) and '@' in v and not k.startswith('_')),
+            None
+        )
+
+        for link in group_links:
+            if isinstance(link, dict) and "row_id" in link:
+                emails_by_user_id[link["row_id"]] = email
+
+    # Получаем все телефоны из PostgreSQL
     async with AsyncSessionLocal() as session:
-        # ждём результат stream()
-        result = await session.stream(select(User.phone))
+        db_users_result = await session.stream(select(User.phone, User.id, User.phone, User.email))
+        db_users = {normalize_phone(phone): uid for phone, uid, _, _ in (await db_users_result.fetchall())}
 
-        # уже по result идём async‑циклом
-        db_phones = {r[0] async for r in result}
+        db_phones_set = set(db_users.keys())
+        sea_phones_set = set(user["phone"] for user in seatable_users_by_id.values())
 
+        # Удаляем тех, кто есть в БД, но уже нет в SeaTable
+        for phone in db_phones_set - sea_phones_set:
+            result = await session.execute(select(User).where(User.phone == phone))
+            user = result.scalar_one_or_none()
+            if user:
+                phone_value = user.phone
+                await session.delete(user)
+                logger.info(f'Отписали от уведомлений: {phone_value} (удалён из SeaTable)')
+
+        # Добавляем новых
         added = 0
-        for row in rows:
-            raw_phone = row["phone"]
-            phone = normalize_phone(raw_phone)
+        for user_id, user_info in seatable_users_by_id.items():
+            phone = user_info["phone"]
+            name = user_info["name"]
 
-            if not phone or phone in db_phones:
-                continue  # пустой или уже есть
+            if phone in db_phones_set:
+                continue  # Уже в БД
 
-            session.add(User(phone=phone))
+            email = emails_by_user_id.get(user_id)
+            session.add(User(phone=phone, email=email))
             added += 1
+            logger.info(f'Добавлен новый пользователь: {name}, телефон: {phone}, email: {email}')
 
+        await session.commit()
         if added:
-            await session.commit()
-            logger.info("В базу добавлено %s новых пользователей", added)
+            logger.info(f"Добавлено {added} новых пользователей.")
         else:
-            logger.info("Сегодня новые пользователи не добавлены")
+            logger.info("Новые пользователи не найдены.")
 
 
 async def get_last_uid(email: str) -> str | None:
