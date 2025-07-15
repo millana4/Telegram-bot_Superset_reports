@@ -6,8 +6,8 @@ Base = declarative_base()
 
 user_mailbox = Table(
     'user_mailbox', Base.metadata,
-    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
-    Column('mailbox_id', Integer, ForeignKey('mailboxes.id'), primary_key=True)
+    Column('user_id', Integer, ForeignKey('users.id', ondelete="CASCADE"), primary_key=True),
+    Column('mailbox_id', Integer, ForeignKey('mailboxes.id', ondelete="CASCADE"), primary_key=True)
 )
 
 class User(Base):

@@ -1,111 +1,127 @@
+import asyncio
+
+from sqlalchemy.orm import selectinload
+
 from database import AsyncSessionLocal
 from sqlalchemy import select
-from database.models import User
-from database.seatable_api import fetch_tables
+from typing import Dict, Any
+
+from database.models import User, Mailbox, user_mailbox
+from database.seatable_api import prepare_for_db
 from config import Config
 from utils import normalize_phone
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 async def sync_users():
-    """Синхронизирует пользователей из SeaTable с БД PostgreSQL"""
+    """Синхронизирует пользователей и почтовые ящики из SeaTable с PostgreSQL"""
+    from sqlalchemy import select, delete, insert
+    from sqlalchemy.exc import IntegrityError
 
     # Получаем данные из SeaTable
-    sea_users_data = await fetch_tables(Config.SEATABLE_USERS_TABLE_ID)
-    sea_groups_data = await fetch_tables(Config.SEATABLE_EMAIL_TABLE_ID)
+    data = await prepare_for_db()
+    if not data:
+        logger.error("Не удалось получить данные из SeaTable")
+        return False
 
-    if not sea_users_data or not sea_groups_data:
-        logger.error("Не удалось получить данные из одной из таблиц SeaTable.")
-        return
-
-    sea_users = sea_users_data.get("rows", [])
-    sea_groups = sea_groups_data.get("rows", [])
-
-    # Маппим user_id из users -> (phone, name, row_id)
-    seatable_users_by_id = {}
-    for u in sea_users:
-        if not isinstance(u, dict):
-            continue
-
-        items = list(u.items())
-
-        # Пропускаем, если нет хотя бы двух полей + _id
-        if len(items) < 2 or "_id" not in u:
-            continue
-
-        # Предполагаем: 1-й — имя, 2-й — телефон
-        name = items[0][1]
-        phone_raw = items[1][1]
-        phone = normalize_phone(phone_raw)
-
-        if not phone:
-            continue
-
-        seatable_users_by_id[u["_id"]] = {
-            "name": name,
-            "phone": phone,
-            "row_id": u["_id"]
-        }
-
-    # Маппим user_id -> email из второй таблицы
-    emails_by_user_id = {}
-    for g in sea_groups:
-        if not isinstance(g, dict):
-            continue
-
-        items = list(g.items())
-
-        # Ищем список с вложенными словарями
-        group_links = next((v for k, v in items if isinstance(v, list) and v and isinstance(v[0], dict)), [])
-
-        # Ищем email среди строковых значений, ключ которых не начинается с "_" (не служебные поля)
-        email = next(
-            (v for k, v in items if isinstance(v, str) and '@' in v and not k.startswith('_')),
-            None
-        )
-
-        for link in group_links:
-            if isinstance(link, dict) and "row_id" in link:
-                emails_by_user_id[link["row_id"]] = email
-
-    # Получаем все телефоны из PostgreSQL
     async with AsyncSessionLocal() as session:
-        db_users_result = await session.stream(select(User.phone, User.id, User.phone, User.email))
-        db_users = {normalize_phone(phone): uid for phone, uid, _, _ in (await db_users_result.fetchall())}
+        try:
+            # --- Обработка ПОЧТОВЫХ ЯЩИКОВ ---
+            logger.info("Начинаем синхронизацию почтовых ящиков...")
+            db_mailboxes = {m.seatable_id: m for m in (await session.execute(select(Mailbox))).scalars()}
+            sea_mailbox_ids = {m['seatable_id'] for m in data['mailboxes']}
 
-        db_phones_set = set(db_users.keys())
-        sea_phones_set = set(user["phone"] for user in seatable_users_by_id.values())
+            to_delete_mailboxes = set(db_mailboxes.keys()) - sea_mailbox_ids
+            if to_delete_mailboxes:
+                await session.execute(delete(Mailbox).where(Mailbox.seatable_id.in_(to_delete_mailboxes)))
+                logger.info(f"Удалено мейлбоксов: {len(to_delete_mailboxes)}")
 
-        # Удаляем тех, кто есть в БД, но уже нет в SeaTable
-        for phone in db_phones_set - sea_phones_set:
-            result = await session.execute(select(User).where(User.phone == phone))
-            user = result.scalar_one_or_none()
-            if user:
-                phone_value = user.phone
-                await session.delete(user)
-                logger.info(f'Отписали от уведомлений: {phone_value} (удалён из SeaTable)')
+            for mailbox_data in data['mailboxes']:
+                mailbox = db_mailboxes.get(mailbox_data['seatable_id'])
+                if not mailbox:
+                    mailbox = Mailbox(
+                        seatable_id=mailbox_data['seatable_id'],
+                        name=mailbox_data['name'],
+                        email=mailbox_data['email'],
+                        description=mailbox_data['description']
+                    )
+                    session.add(mailbox)
+                    logger.info(f"Добавлен мейлбокс: {mailbox.email}")
+                else:
+                    if any([
+                        mailbox.name != mailbox_data['name'],
+                        mailbox.email != mailbox_data['email'],
+                        mailbox.description != mailbox_data['description']
+                    ]):
+                        mailbox.name = mailbox_data['name']
+                        mailbox.email = mailbox_data['email']
+                        mailbox.description = mailbox_data['description']
+                        logger.info(f"Обновлен мейлбокс: {mailbox.email}")
 
-        # Добавляем новых
-        added = 0
-        for user_id, user_info in seatable_users_by_id.items():
-            phone = user_info["phone"]
-            name = user_info["name"]
+            # --- Обработка ПОЛЬЗОВАТЕЛЕЙ ---
+            logger.info("Начинаем синхронизацию пользователей...")
+            db_users = {u.seatable_id: u for u in (await session.execute(select(User))).scalars()}
+            sea_user_ids = {u['seatable_id'] for u in data['users']}
 
-            if phone in db_phones_set:
-                continue  # Уже в БД
+            to_delete_users = set(db_users.keys()) - sea_user_ids
+            if to_delete_users:
+                await session.execute(delete(User).where(User.seatable_id.in_(to_delete_users)))
+                logger.info(f"Удалено пользователей: {len(to_delete_users)}")
 
-            email = emails_by_user_id.get(user_id)
-            session.add(User(phone=phone, email=email))
-            added += 1
-            logger.info(f'Добавлен новый пользователь: {name}, телефон: {phone}, email: {email}')
+            for user_data in data['users']:
+                user = db_users.get(user_data['seatable_id'])
+                if not user:
+                    user = User(
+                        seatable_id=user_data['seatable_id'],
+                        name=user_data['name'],
+                        phone=user_data['phone'],
+                        telegram_id=None,
+                        last_uid=None
+                    )
+                    session.add(user)
+                    logger.info(f"Добавлен пользователь: {user.name}")
+                else:
+                    if any([
+                        user.name != user_data['name'],
+                        user.phone != user_data['phone']
+                    ]):
+                        user.name = user_data['name']
+                        user.phone = user_data['phone']
+                        logger.info(f"Обновлен пользователь: {user.name}")
 
-        await session.commit()
-        if added:
-            logger.info(f"Добавлено {added} новых пользователей.")
-        else:
-            logger.info("Новые пользователи не найдены.")
+            # --- Обработка СВЯЗЕЙ ---
+            logger.info("Обновляем связи пользователей и мейлбоксов...")
+            await session.execute(delete(user_mailbox))
 
+            # Подгружаем ID пользователей и мейлбоксов
+            users_map = {u.seatable_id: u.id for u in (await session.execute(select(User))).scalars()}
+            mailboxes_map = {m.seatable_id: m.id for m in (await session.execute(select(Mailbox))).scalars()}
+
+            links = []
+            for relation in data['relations']:
+                user_id = users_map.get(relation['user_seatable_id'])
+                mailbox_id = mailboxes_map.get(relation['mailbox_seatable_id'])
+                if user_id and mailbox_id:
+                    links.append({'user_id': user_id, 'mailbox_id': mailbox_id})
+                    logger.debug(f"Связали пользователя {user_id} с мейлбоксом {mailbox_id}")
+
+            if links:
+                await session.execute(insert(user_mailbox), links)
+
+            await session.commit()
+            logger.info("Синхронизация успешно завершена!")
+            return True
+
+        except IntegrityError as e:
+            await session.rollback()
+            logger.error(f"Ошибка целостности данных: {str(e)}")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Ошибка при синхронизации: {str(e)}")
+
+        return False
 
 async def get_last_uid(email: str) -> str | None:
     """Получает последний обработанный UID письма в ящике"""
@@ -154,3 +170,9 @@ async def update_last_uid(email: str, last_uid: str) -> None:
         if 'session' in locals():
             await session.rollback()
         raise
+
+
+
+# Скрипт для отладки sync_users(). Обновляет данные в БД — данные пользователей, мейлбоксов, связи
+# if __name__ == "__main__":
+#     asyncio.run(sync_users())

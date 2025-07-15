@@ -7,6 +7,7 @@ import logging
 from typing import List, Dict, Optional, Any
 
 from config import Config
+from utils import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +256,7 @@ async def prepare_for_db() -> Dict[str, Any]:
             user_dict = {
                 'seatable_id': user.get('_id', ''),
                 'name': user.get(find_column_key(users_metadata, 'Name') or '0000', ''),
-                'phone': user.get(find_column_key(users_metadata, 'phone') or 'Cv8Z', None),
+                'phone': normalize_phone(user.get(find_column_key(users_metadata, 'phone') or 'Cv8Z', None)),
                 'telegram_id': None,
                 'last_uid': None
             }

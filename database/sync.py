@@ -20,7 +20,7 @@ class Scheduler:
             else:
                 logger.info("Запуск ежедневной синхронизации БД с Seatable")
 
-            await insert_new_users()
+            await sync_users()
 
             if startup:
                 logger.info("Синхронизация БД с Seatable при запуске бота завершена")
