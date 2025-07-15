@@ -6,7 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import User
-from utils.phone import normalize_phone
+from utils import normalize_phone
 from keyboards import share_contact_kb
 
 

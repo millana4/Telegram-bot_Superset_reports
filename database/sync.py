@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, time, timedelta
-from database.crud import insert_new_users
+from database.crud import sync_users
 from config import Config
 
 

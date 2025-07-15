@@ -1,14 +1,14 @@
 from database import AsyncSessionLocal
 from sqlalchemy import select
 from database.models import User
-from database.seatable_client import fetch_tables
+from database.seatable_api import fetch_tables
 from config import Config
-from utils.phone import normalize_phone
+from utils import normalize_phone
 import logging
 
 logger = logging.getLogger(__name__)
 
-async def insert_new_users():
+async def sync_users():
     """Синхронизирует пользователей из SeaTable с БД PostgreSQL"""
 
     # Получаем данные из SeaTable
