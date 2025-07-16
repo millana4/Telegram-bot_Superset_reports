@@ -1,5 +1,5 @@
 from aiogram import Router, types, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 import logging
 
 from sqlalchemy import select, update
@@ -29,9 +29,10 @@ async def cmd_start(message: types.Message, session: AsyncSession):
 
     # Иначе просим поделиться контактом
     await message.answer(
-        "Поделитесь, пожалуйста, своим контактом — номером телефона, чтобы мы поняли кто вы.",
+        "Поделитесь, пожалуйста, вашим контактом — номером телефона, чтобы авторизоваться в системе.",
         reply_markup=share_contact_kb,
     )
+
 
 @router.message(F.contact)
 async def handle_contact(message: types.Message, session: AsyncSession):
@@ -55,3 +56,13 @@ async def handle_contact(message: types.Message, session: AsyncSession):
         await message.answer("👋 Приветствуем! Вы подписались на уведомления от Superset.")
     else:
         await message.answer("🚫 Ваш номер телефона не найден в системе. Обратитесь к администратору.")
+
+
+@router.message(Command("myinfo"))
+async def cmd_myinfo(message: types.Message, session: AsyncSession):
+    """Показывает информацию о подписке"""
+    user = await session.get(User, message.from_user.id)
+    if user:
+        await message.answer(f"Вы подписаны как: {user.name}\nТелефон: {user.phone}")
+    else:
+        await message.answer("Вы не авторизованы. Нажмите /start")

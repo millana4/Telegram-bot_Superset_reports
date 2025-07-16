@@ -1,21 +1,33 @@
 import asyncio
 import logging
 import threading
-
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
+
+import handlers
 from config import Config
 from email_handler import imap_idle_listener
 from database.sync import start_sync
-
-# Инициализация бота
-bot = Bot(token=Config.BOT_TOKEN)
+from database.db_session import DbSessionMiddleware
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-dp = Dispatcher()
 
 async def main():
+    # Инициализация бота
+    bot = Bot(token=Config.BOT_TOKEN)
+
+    dp = Dispatcher(storage=MemoryStorage())
+    # Регистрирую роутер для обработки действий пользователей (старт, авторизация)
+    dp.include_router(handlers.router)
+
+    # Регистрация middleware
+    dp.update.middleware(DbSessionMiddleware())
+
+    # Удаляем вебхук (на всякий случай)
+    await bot.delete_webhook(drop_pending_updates=True)
+
     me = await bot.get_me()
     logger.info("Telegram bot @%s запущен", me.username)
 

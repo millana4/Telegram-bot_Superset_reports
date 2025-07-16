@@ -3,7 +3,6 @@ import pprint
 import time
 import aiohttp
 import logging
-
 from typing import List, Dict, Optional, Any
 
 from config import Config
