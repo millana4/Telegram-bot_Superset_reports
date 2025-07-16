@@ -1,15 +1,12 @@
 import asyncio
-
-from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, insert
 
 from database import AsyncSessionLocal
 from sqlalchemy import select
-from typing import Dict, Any
 
 from database.models import User, Mailbox, user_mailbox
 from database.seatable_api import prepare_for_db
-from config import Config
-from utils import normalize_phone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,8 +14,6 @@ logger = logging.getLogger(__name__)
 
 async def sync_users():
     """Синхронизирует пользователей и почтовые ящики из SeaTable с PostgreSQL"""
-    from sqlalchemy import select, delete, insert
-    from sqlalchemy.exc import IntegrityError
 
     # Получаем данные из SeaTable
     data = await prepare_for_db()
@@ -71,8 +66,11 @@ async def sync_users():
                 logger.info(f"Удалено пользователей: {len(to_delete_users)}")
 
             for user_data in data['users']:
+                if not user_data.get('phone'):
+                    logger.warning(f"Пользователь {user_data.get('name')} не добавлен — отсутствует номер телефона")
+                    continue
                 user = db_users.get(user_data['seatable_id'])
-                if not user:
+                if not user:  # если пользователя еще нет в БД, то добавляем
                     user = User(
                         seatable_id=user_data['seatable_id'],
                         name=user_data['name'],
@@ -80,8 +78,16 @@ async def sync_users():
                         telegram_id=None,
                         last_uid=None
                     )
-                    session.add(user)
-                    logger.info(f"Добавлен пользователь: {user.name}")
+                    try:
+                        session.add(user)
+                        await session.flush()  # Пробуем записать в базу сразу, чтобы отловить IntegrityError на этом этапе
+                        logger.info(f"Добавлен пользователь: {user.name}")
+                    except IntegrityError:
+                        await session.rollback()
+                        logger.warning(
+                            f"Пропущен пользователь при добавлении в БД — {user_data.get('name')} с seatable_id={user_data.get('seatable_id')} "
+                            f"У него дублирующий телефон: {user_data.get('phone')}. Нужно убрать дублирование в Seatable"
+                        )
                 else:
                     if any([
                         user.name != user_data['name'],
@@ -160,10 +166,8 @@ async def update_last_uid(email: str, last_uid: str) -> None:
             old_uid = user.last_uid
             user.last_uid = last_uid
 
-            # Явно добавляем пользователя в сессию
             session.add(user)
-            await session.commit()
-            logger.info(f"UID обновлён для {email}: {old_uid} -> {last_uid}")
+            logger.info(f"Добавлен пользователь: {user.name}")
 
     except Exception as e:
         logger.error(f"Ошибка при обновлении last_uid: {e}")

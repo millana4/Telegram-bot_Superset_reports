@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
-from models import Base
+from database.models import Base
 from config import Config
 
 # Async PostgreSQL URL

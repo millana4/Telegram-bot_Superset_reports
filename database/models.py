@@ -16,7 +16,7 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     seatable_id = Column(String, unique=True, index=True)  # string на всякий случай
     name = Column(String)
-    phone = Column(String, unique=True, nullable=True)
+    phone = Column(String, unique=True, nullable=False)
     telegram_id = Column(BigInteger, unique=True, nullable=True)
     last_uid = Column(String, nullable=True)
 
