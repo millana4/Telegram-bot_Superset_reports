@@ -1,12 +1,19 @@
 import time
 import asyncio
 import logging
+
+from bot import bot
+from aiogram.types import BufferedInputFile
 from imap_tools import MailBox, AND
 from email.header import decode_header
 
+from sqlalchemy import select
 
-logging.basicConfig(level=logging.INFO)
+from database import AsyncSessionLocal
+from database.models import User, user_mailbox, Mailbox
+
 logger = logging.getLogger(__name__)
+
 
 async def handle_email(email_msg):
     """Извлекает из письма тему и вложение"""
@@ -57,6 +64,35 @@ async def handle_email(email_msg):
         logger.error(f"Критическая ошибка в handle_email: {e}", exc_info=True)
         raise
 
+
+async def distribute_attachments(email: str, subject: str, attachments: list[tuple[str, bytes]], loop: asyncio.AbstractEventLoop):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User.telegram_id)
+            .join(user_mailbox)
+            .join(Mailbox)
+            .where(Mailbox.email == email)
+            .where(User.telegram_id.isnot(None))
+        )
+        telegram_ids = [row[0] for row in result.all()]
+
+        if not telegram_ids:
+            logger.info(f"[{email}] Нет подписчиков для рассылки.")
+            return
+
+        for telegram_id in telegram_ids:
+            for filename, content in attachments:
+                try:
+                    await bot.send_document(
+                        chat_id=telegram_id,
+                        document=BufferedInputFile(content, filename=filename),
+                        caption=subject if subject else None
+                    )
+                    logger.info(f"[{email}] Отправлено пользователю {telegram_id}: {filename}")
+                except Exception as e:
+                    logger.error(f"[{email}] Ошибка отправки пользователю {telegram_id}: {e}")
+
+
 def imap_idle_listener(account, loop):
     """Слушает входящие письма на одном аккаунте через IMAP IDLE."""
     while True:
@@ -80,7 +116,18 @@ def imap_idle_listener(account, loop):
                     for message in unseen_messages:
                         try:
                             print(f"[{account['email']}] Обработка письма UID={message.uid}, тема: {message.subject}")
-                            asyncio.run_coroutine_threadsafe(handle_email(message.obj), loop)
+                            # Обработка письма и извлечение данных
+                            coro = handle_email(message.obj)
+
+                            # Передаём coroutine в loop, чтобы получить результат
+                            future = asyncio.run_coroutine_threadsafe(coro, loop)
+                            subject, attachments = future.result()
+
+                            # Рассылка вложений
+                            asyncio.run_coroutine_threadsafe(
+                                distribute_attachments(account['email'], subject, attachments, loop),
+                                loop
+                            )
                         except Exception as e:
                             print(f"[{account['email']}] Ошибка обработки письма UID={message.uid}: {e}")
         except Exception as e:

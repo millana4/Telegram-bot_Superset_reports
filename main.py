@@ -6,6 +6,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 import handlers
 from config import Config
+from bot import bot
 from email_handler import imap_idle_listener
 from database.sync import start_sync
 from database.db_session import DbSessionMiddleware
@@ -15,9 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
-    # Инициализация бота
-    bot = Bot(token=Config.BOT_TOKEN)
-
     dp = Dispatcher(storage=MemoryStorage())
     # Регистрирую роутер для обработки действий пользователей (старт, авторизация)
     dp.include_router(handlers.router)
