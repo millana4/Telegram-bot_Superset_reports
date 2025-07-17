@@ -14,11 +14,11 @@ class User(Base):
     __tablename__ = 'users'
 
     id = Column(Integer, primary_key=True)
-    seatable_id = Column(String, unique=True, index=True)  # string на всякий случай
+    seatable_id = Column(String, unique=True, index=True)
     name = Column(String)
     phone = Column(String, unique=True, nullable=False)
     telegram_id = Column(BigInteger, unique=True, nullable=True)
-    last_uid = Column(String, nullable=True)
+
 
     mailboxes = relationship("Mailbox", secondary=user_mailbox, back_populates="users")
 
@@ -26,9 +26,10 @@ class Mailbox(Base):
     __tablename__ = 'mailboxes'
 
     id = Column(Integer, primary_key=True)
-    seatable_id = Column(String, unique=True, index=True)  # обязательно, если тоже есть в Seatable
+    seatable_id = Column(String, unique=True, index=True)
     name = Column(String)
     email = Column(String, unique=True)
     description = Column(String, nullable=True)
+    last_uid = Column(String, nullable=True)
 
     users = relationship("User", secondary=user_mailbox, back_populates="mailboxes")

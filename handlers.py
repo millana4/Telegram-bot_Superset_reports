@@ -57,12 +57,3 @@ async def handle_contact(message: types.Message, session: AsyncSession):
     else:
         await message.answer("🚫 Ваш номер телефона не найден в системе. Обратитесь к администратору.")
 
-
-@router.message(Command("myinfo"))
-async def cmd_myinfo(message: types.Message, session: AsyncSession):
-    """Показывает информацию о подписке"""
-    user = await session.get(User, message.from_user.id)
-    if user:
-        await message.answer(f"Вы подписаны как: {user.name}\nТелефон: {user.phone}")
-    else:
-        await message.answer("Вы не авторизованы. Нажмите /start")

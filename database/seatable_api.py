@@ -286,7 +286,7 @@ async def prepare_for_db() -> Dict[str, Any]:
 
 
 
-# Отладочный скрипт для проверки API SeaTable
+# Отладочный скрипт для вывода ответов json по API SeaTable
 #
 # if __name__ == "__main__":
 #     async def main():

@@ -3,7 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import delete, insert
 
 from database import AsyncSessionLocal
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from database.models import User, Mailbox, user_mailbox
 from database.seatable_api import prepare_for_db
@@ -23,7 +23,7 @@ async def sync_users():
 
     async with AsyncSessionLocal() as session:
         try:
-            # --- Обработка ПОЧТОВЫХ ЯЩИКОВ ---
+            # --- Обработка почтовых ящиков ---
             logger.info("Начинаем синхронизацию почтовых ящиков...")
             db_mailboxes = {m.seatable_id: m for m in (await session.execute(select(Mailbox))).scalars()}
             sea_mailbox_ids = {m['seatable_id'] for m in data['mailboxes']}
@@ -40,7 +40,8 @@ async def sync_users():
                         seatable_id=mailbox_data['seatable_id'],
                         name=mailbox_data['name'],
                         email=mailbox_data['email'],
-                        description=mailbox_data['description']
+                        description=mailbox_data['description'],
+                        last_uid = None
                     )
                     session.add(mailbox)
                     logger.info(f"Добавлен мейлбокс: {mailbox.email}")
@@ -55,7 +56,7 @@ async def sync_users():
                         mailbox.description = mailbox_data['description']
                         logger.info(f"Обновлен мейлбокс: {mailbox.email}")
 
-            # --- Обработка ПОЛЬЗОВАТЕЛЕЙ ---
+            # --- Обработка пользователей ---
             logger.info("Начинаем синхронизацию пользователей...")
             db_users = {u.seatable_id: u for u in (await session.execute(select(User))).scalars()}
             sea_user_ids = {u['seatable_id'] for u in data['users']}
@@ -76,7 +77,6 @@ async def sync_users():
                         name=user_data['name'],
                         phone=user_data['phone'],
                         telegram_id=None,
-                        last_uid=None
                     )
                     try:
                         session.add(user)
@@ -97,7 +97,7 @@ async def sync_users():
                         user.phone = user_data['phone']
                         logger.info(f"Обновлен пользователь: {user.name}")
 
-            # --- Обработка СВЯЗЕЙ ---
+            # --- Обработка связей ---
             logger.info("Обновляем связи пользователей и мейлбоксов...")
             await session.execute(delete(user_mailbox))
 
@@ -130,53 +130,36 @@ async def sync_users():
         return False
 
 async def get_last_uid(email: str) -> str | None:
-    """Получает последний обработанный UID письма в ящике"""
+    """Получает last_uid (id последнего обработанного в рассылке письма) из таблицы Mailbox по email"""
     try:
         async with AsyncSessionLocal() as session:
-            result = await session.execute(select(User).where(User.email == email))
-            user = result.scalar_one_or_none()
-
-            if user:
-                logger.debug(f"Найден last_uid для {email}: {user.last_uid}")
-                return user.last_uid
-            logger.warning(f"Пользователь с email {email} не найден")
-            return None
-
-    except Exception as e:
-        logger.error(f"Ошибка при получении last_uid: {e}")
-        raise
-
-
-async def update_last_uid(email: str, last_uid: str) -> None:
-    """Обновляет последний обработанный UID для ящика"""
-    try:
-        async with AsyncSessionLocal() as session:
-            # Получаем пользователя и блокируем запись для обновления
             result = await session.execute(
-                select(User)
-                .where(User.email == email)
-                .with_for_update()
+                select(Mailbox.last_uid).where(Mailbox.email == email)
             )
-            user = result.scalar_one_or_none()
-
-            if not user:
-                logger.error(f"Пользователь с email {email} не найден")
-                return
-
-            old_uid = user.last_uid
-            user.last_uid = last_uid
-
-            session.add(user)
-            logger.info(f"Добавлен пользователь: {user.name}")
-
+            return result.scalar_one_or_none()
     except Exception as e:
-        logger.error(f"Ошибка при обновлении last_uid: {e}")
-        if 'session' in locals():
-            await session.rollback()
+        logger.error(f"Ошибка получения last_uid: {e}")
         raise
 
 
+async def update_last_uid(email: str, uid: str):
+    """Обновляет last_uid для Mailbox"""
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Mailbox).where(Mailbox.email == email)
+            )
+            mailbox = result.scalar_one_or_none()
+            if mailbox:
+                mailbox.last_uid = uid
+                await session.commit()
+                logger.debug(f"[{email}] last_uid обновлён: {uid}")
+    except Exception as e:
+        logger.error(f"Ошибка обновления last_uid: {e}")
+        raise
 
-# Скрипт для отладки sync_users(). Обновляет данные в БД — данные пользователей, мейлбоксов, связи
+
+# Скрипт для отладки sync_users().
+# Запускает синхронизацию, обновляет данные в БД — данные пользователей, мейлбоксов, связи
 # if __name__ == "__main__":
 #     asyncio.run(sync_users())

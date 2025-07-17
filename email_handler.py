@@ -10,13 +10,14 @@ from email.header import decode_header
 from sqlalchemy import select
 
 from database import AsyncSessionLocal
+from database.crud import update_last_uid, get_last_uid
 from database.models import User, user_mailbox, Mailbox
 
 logger = logging.getLogger(__name__)
 
 
 async def handle_email(email_msg):
-    """Извлекает из письма тему и вложение"""
+    """Извлекает из письма тему и вложение — только файл в формате PDF"""
     try:
         # Декодируем тему письма (может быть в base64 или quoted-printable)
         subject = email_msg['Subject'] or 'Без темы'
@@ -66,6 +67,7 @@ async def handle_email(email_msg):
 
 
 async def distribute_attachments(email: str, subject: str, attachments: list[tuple[str, bytes]], loop: asyncio.AbstractEventLoop):
+    """Принимает PDF-файл, обращается к БД, ищет список пользователей и отправляем им файл"""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(User.telegram_id)
@@ -93,6 +95,27 @@ async def distribute_attachments(email: str, subject: str, attachments: list[tup
                     logger.error(f"[{email}] Ошибка отправки пользователю {telegram_id}: {e}")
 
 
+async def resend_report(message, account_email: str, loop: asyncio.AbstractEventLoop):
+    """Запускает пересылку PDF-вложения и запускает обновление last_uid (последнего обработанного письма)"""
+    try:
+        print(f"[{account_email}] Обработка письма UID={message.uid}, тема: {message.subject}")
+
+        # Обработка письма и извлечение данных
+        subject, attachments = await handle_email(message.obj)
+
+        # Пересылка пользователям из БД
+        if attachments:
+            await distribute_attachments(account_email, subject, attachments, loop)
+
+            # Обновляем last_uid, если вложения были успешно отправлены
+            await update_last_uid(account_email, str(message.uid))
+        else:
+            print(f"[{account_email}] Вложений нет, рассылка не требуется.")
+
+    except Exception as e:
+        print(f"[{account_email}] Ошибка обработки письма UID={message.uid}: {e}")
+
+
 def imap_idle_listener(account, loop):
     """Слушает входящие письма на одном аккаунте через IMAP IDLE."""
     while True:
@@ -103,33 +126,56 @@ def imap_idle_listener(account, loop):
 
                 while True:
                     print(f"[{account['email']}] Вошли в режим IDLE")
-                    for _ in mailbox.idle.wait(timeout=300):  # принимает уведомления отсервера
+                    for _ in mailbox.idle.wait(timeout=300):  # Ждём новые письма до 5 минут
                         break
 
-                    # После выхода из IDLE — ищем непрочитанные письма
-                    unseen_messages = list(mailbox.fetch(criteria=AND(seen=False)))
+                    # Получаем все непрочитанные письма
+                    messages = list(mailbox.fetch(AND(seen=False)))
+
+                    if not messages:
+                        print(f"[{account['email']}] Нет непрочитанных писем. Ожидание новых.")
+                        continue
+
+                    # Получаем последний обработанный UID
+                    last_uid = asyncio.run_coroutine_threadsafe(
+                        get_last_uid(account['email']), loop
+                    ).result()
+
+                    # Преобразуем к int, если значение есть
+                    last_uid = int(last_uid) if last_uid is not None else None
+
+                    if last_uid is None:
+                        # Обрабатываем только самое свежее письмо
+                        latest_message = max(messages, key=lambda m: int(m.uid))
+                        print(f"[{account['email']}] Первая инициализация. Обрабатываем письмо UID={latest_message.uid}")
+
+                        asyncio.run_coroutine_threadsafe(
+                            resend_report(latest_message, account['email'], loop),
+                            loop
+                        )
+                        # После обработки обновим last_uid
+                        asyncio.run_coroutine_threadsafe(
+                            update_last_uid(account['email'], str(latest_message.uid)), loop
+                        )
+                        continue
+
+                    # Фильтруем только новые письма
+                    unseen_messages = [m for m in messages if int(m.uid) > last_uid]
 
                     if not unseen_messages:
                         print(f"[{account['email']}] Новых непрочитанных писем нет.")
                         continue
 
+                    # Сортируем по UID (на всякий случай)
+                    unseen_messages.sort(key=lambda m: int(m.uid))
+
+                    # Обрабатываем каждое новое письмо
                     for message in unseen_messages:
-                        try:
-                            print(f"[{account['email']}] Обработка письма UID={message.uid}, тема: {message.subject}")
-                            # Обработка письма и извлечение данных
-                            coro = handle_email(message.obj)
+                        asyncio.run_coroutine_threadsafe(
+                            resend_report(message, account['email'], loop),
+                            loop
+                        )
 
-                            # Передаём coroutine в loop, чтобы получить результат
-                            future = asyncio.run_coroutine_threadsafe(coro, loop)
-                            subject, attachments = future.result()
-
-                            # Рассылка вложений
-                            asyncio.run_coroutine_threadsafe(
-                                distribute_attachments(account['email'], subject, attachments, loop),
-                                loop
-                            )
-                        except Exception as e:
-                            print(f"[{account['email']}] Ошибка обработки письма UID={message.uid}: {e}")
         except Exception as e:
             print(f"[{account['email']}] Ошибка подключения или работы с IMAP: {e}")
             time.sleep(10)
