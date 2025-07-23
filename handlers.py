@@ -1,5 +1,6 @@
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart, Command
+from aiogram.types import ReplyKeyboardRemove
 import logging
 
 from sqlalchemy import select, update
@@ -53,7 +54,13 @@ async def handle_contact(message: types.Message, session: AsyncSession):
             update(User).where(User.id == user.id).values(telegram_id=telegram_id)
         )
         await session.commit()
-        await message.answer("👋 Приветствуем! Вы подписались на уведомления от Superset.")
+        await message.answer(
+            "👋 Приветствуем! Вы подписались на уведомления от Superset.",
+            reply_markup=ReplyKeyboardRemove()
+        )
     else:
-        await message.answer("🚫 Ваш номер телефона не найден в системе. Обратитесь к администратору.")
+        await message.answer(
+            "🚫 Ваш номер телефона не найден в системе. Обратитесь к администратору.",
+            reply_markup=ReplyKeyboardRemove()
+        )
 

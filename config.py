@@ -5,9 +5,6 @@ load_dotenv()
 
 class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN")
-    ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS").split(",")))
-
-    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # id пользователя, куда пересылать сообщение
 
     IMAP_SERVER = os.getenv("IMAP_SERVER")
     IMAP_EMAIL_SR01 = os.getenv("IMAP_EMAIL_SR01")

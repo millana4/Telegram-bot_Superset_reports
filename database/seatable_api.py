@@ -23,13 +23,14 @@ async def get_base_token() -> Optional[Dict]:
     Получает временный токен для синхронизации по Апи.
     Возвращает словарь:
     {
-        "app_name": "ssetuser",
-        "access_token": "some_token_string",
-        "dtable_uuid": "4cacfb1a-7d69-45ec-b181-952b913e1483",
-        "workspace_id": 82533,
-        "dtable_name": "users_sset-grp",
-        "use_api_gateway": true,
-        "dtable_server": "https://cloud.seatable.io/api-gateway/"
+        "app_name":"users_sset-grp",
+        "access_token":"some_token_string",
+        "dtable_uuid":"54abc13e-2968-495b-b40d-b690775cd64f",
+        "dtable_server":"https://tab.4xapp.ru/dtable-server/",
+        "dtable_socket":"https://tab.4xapp.ru/",
+        "dtable_db":"https://tab.4xapp.ru/dtable-db/",
+        "workspace_id":1,
+        "dtable_name":"users_sset-grp"
     }
     """
     now = time.time()
@@ -39,7 +40,7 @@ async def get_base_token() -> Optional[Dict]:
     if cached and (now - cached_time) < _TOKEN_TTL:
         return cached
 
-    url = "https://cloud.seatable.io/api/v2.1/dtable/app-access-token/"
+    url = "https://tab.4xapp.ru/api/v2.1/dtable/app-access-token/"
     headers = {
         "accept": "application/json",
         "authorization": f"Bearer {Config.SEATABLE_API_TOKEN}"
@@ -73,35 +74,24 @@ async def fetch_table(table_name: str) -> List[Dict]:
     Пример словаря для users:
     [
         {
-            '0000': 'usertest01_seller',
-            'Cv8Z': '+7981XXXXXXX',
-            'XKVt': [{'display_value': 'sale', 'row_id': 'Mw_3fNzwRQinL7RLTFQN0Q'}],
-            '_archived': False,
-            '_creator': '5155027b66d445bb96ccf5a9f7452ce4@auth.local',
-            '_ctime': '2025-07-08T13:58:08.914+02:00',
-            '_id': 'HiQYOMv4SLSsSMF_EpGpOg',
-            '_last_modifier': '5155027b66d445bb96ccf5a9f7452ce4@auth.local',
-            '_locked': None,
-            '_locked_by': None,
-            '_mtime': '2025-07-14T15:59:10.958+02:00'
+            'Name': 'usertest01_seller',
+            '_ctime': '2025-07-08T11:58:08.914+00:00',
+            '_id': 'id_text_format',
+            '_mtime': '2025-07-14T13:59:10.958+00:00',
+            'mailboxes': ['id_text_format'],
+            'phone': '+7981ХХХХХХХ'
         },
     ]
     Пример словаря для mailboxes:
     [
         {
-            '0000': 'sale',
-            '8OBK': 'box01@mail.ru',
-            '8sUx': [{'display_value': 'usertest01_seller',
-            'row_id': 'HiQYOMv4SLSsSMF_EpGpOg'}],
-            'XE9i': 'дашборды по продажам',
-            '_archived': False,
-            '_creator': '5155027b66d445bb96ccf5a9f7452ce4@auth.local',
-            '_ctime': '2025-07-08T14:06:44.441+02:00',
-            '_id': 'Mw_3fNzwRQinL7RLTFQN0Q',
-            '_last_modifier': '5155027b66d445bb96ccf5a9f7452ce4@auth.local',
-            '_locked': None,
-            '_locked_by': None,
-            '_mtime': '2025-07-14T16:03:12.951+02:00'
+            'Name': 'sale',
+            '_ctime': '2025-07-08T12:06:44.441+00:00',
+            '_id': 'id_text_format',
+            '_mtime': '2025-07-14T14:03:12.951+00:00',
+            'description': 'дашборды по продажам',
+            'email': 'box1@mail.ru',
+            'users': ['id_text_format', 'id_text_format']
         },
     ]
     """
@@ -115,7 +105,7 @@ async def fetch_table(table_name: str) -> List[Dict]:
     dtable_uuid = token_data["dtable_uuid"]
     base_url = token_data["dtable_server"].rstrip("/")
 
-    url = f"{base_url}/api/v2/dtables/{dtable_uuid}/rows/"
+    url = f"{base_url}/api/v1/dtables/{dtable_uuid}/rows/"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json"
@@ -153,7 +143,7 @@ async def get_table_columns(table_name: str) -> Optional[Dict[str, str]]:
     dtable_uuid = token_data["dtable_uuid"]
     base_url = token_data["dtable_server"].rstrip("/")
 
-    url = f"{base_url}/api/v2/dtables/{dtable_uuid}/columns/"
+    url = f"{base_url}/api/v1/dtables/{dtable_uuid}/columns/"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json"
@@ -181,107 +171,123 @@ async def get_table_columns(table_name: str) -> Optional[Dict[str, str]]:
     return None
 
 
-#
 
 async def prepare_for_db() -> Dict[str, Any]:
     """
     Возвращает сокращенные словари, чтобы было удобно синхронизировать с Postgres
-    {'mailboxes': [{'description': 'дашборды по продажам',
-                'email': 'box1@mail.ru',
-                'name': 'sale',
-                'seatable_id': 'Mw_3fNzwRQinL7RLTFQN0Q'},
-               {'description': 'для руководителей',
-                'email': 'box2@mail.ru',
-                'name': 'top',
-                'seatable_id': 'Rp5djUppTcqM1LQO_3x_gg'}],
- 'relations': [{'mailbox_seatable_id': 'Mw_3fNzwRQinL7RLTFQN0Q',
-                'user_seatable_id': 'HiQYOMv4SLSsSMF_EpGpOg'},
-               {'mailbox_seatable_id': 'Rp5djUppTcqM1LQO_3x_gg',
-                'user_seatable_id': 'ZbyFNPKjTtCz6CWc7cbE5Q'}],
- 'users': [{'last_uid': None,
-            'name': 'usertest01_seller',
-            'phone': '+7981XXXXXXX',
-            'seatable_id': 'HiQYOMv4SLSsSMF_EpGpOg',
-            'telegram_id': None},
-           {'last_uid': None,
-            'name': 'usertest02_head',
-            'phone': '+7921XXXXXXX',
-            'seatable_id': 'ZbyFNPKjTtCz6CWc7cbE5Q',
-            'telegram_id': None}]}
+    {
+        'mailboxes':
+            [
+                {
+                    'description': 'дашборды по продажам',
+                    'email': 'box01@mail.ru',
+                    'name': 'sale',
+                    'seatable_id': 'some_string'
+                },
+            ],
+    'relations':
+        [
+            {
+                'mailbox_seatable_id': 'some_string',
+                'user_seatable_id': 'some_string'
+            },
+            {
+                'mailbox_seatable_id': 'some_string',
+                'user_seatable_id': 'some_string'
+            },
+        ],
+    'users':
+        [
+            {
+                'last_uid': None,
+                'name': 'usertest01_seller',
+                'phone': '+7981ХХХХХХХ',
+                'seatable_id': 'some_string',
+                'telegram_id': None
+            },
+        ]
+    }
     """
     # Получаем данные из таблиц
     users_data = await fetch_table(Config.SEATABLE_USERS_TABLE_ID)
     mailboxes_data = await fetch_table(Config.SEATABLE_MAILBOXES_TABLE_ID)
 
-    # Получаем метаданные таблиц
+    # Получаем метаданные таблиц (для совместимости)
     users_metadata = await get_table_columns(Config.SEATABLE_USERS_TABLE_ID)
     mailboxes_metadata = await get_table_columns(Config.SEATABLE_MAILBOXES_TABLE_ID)
 
-    # Создаем словари для быстрого доступа к данным
-    mailboxes_map = {mb['_id']: mb for mb in mailboxes_data}
-    users_map = {user['_id']: user for user in users_data}
-
-    # Определяем ключи колонок из метаданных
-    def find_column_key(metadata, column_name):
-        if not isinstance(metadata, dict) or 'columns' not in metadata:
-            return None
-        for col in metadata['columns']:
-            if col.get('name') == column_name:
-                return col.get('key')
-        return None
-
-    # Подготовка данных для пользователей
+    # Подготовка данных для пользователей и почтовых ящиков
     users_to_db = []
     mailboxes_to_db = []
     user_mailbox_relations = []
 
-    # Сначала обрабатываем почтовые ящики
+    # Обрабатываем почтовые ящики (новая структура)
     for mailbox in mailboxes_data:
         try:
             mailbox_dict = {
                 'seatable_id': mailbox.get('_id', ''),
-                'name': mailbox.get(find_column_key(mailboxes_metadata, 'Name') or '0000', ''),
-                'email': mailbox.get(find_column_key(mailboxes_metadata, 'email') or '8OBK', ''),
-                'description': mailbox.get(find_column_key(mailboxes_metadata, 'description') or 'XE9i', None)
+                'name': mailbox.get('Name', ''),  # Прямое обращение к полю Name
+                'email': mailbox.get('email', ''),  # Прямое обращение к полю email
+                'description': mailbox.get('description', None)  # Прямое обращение
             }
             mailboxes_to_db.append(mailbox_dict)
+
+            # Собираем связи из почтовых ящиков (users в mailbox)
+            for user_id in mailbox.get('users', []):
+                user_mailbox_relations.append({
+                    'user_seatable_id': user_id,
+                    'mailbox_seatable_id': mailbox['_id']
+                })
+
         except Exception as e:
             logger.error(f"Ошибка обработки почтового ящика {mailbox.get('_id')}: {str(e)}")
             continue
 
-    # Затем обрабатываем пользователей и связи
+    # Обрабатываем пользователей (новая структура)
     for user in users_data:
         try:
             user_dict = {
                 'seatable_id': user.get('_id', ''),
-                'name': user.get(find_column_key(users_metadata, 'Name') or '0000', ''),
-                'phone': normalize_phone(user.get(find_column_key(users_metadata, 'phone') or 'Cv8Z', None)),
+                'name': user.get('Name', ''),  # Прямое обращение к полю Name
+                'phone': normalize_phone(user.get('phone', None)),  # Прямое обращение
                 'telegram_id': None,
                 'last_uid': None
             }
+
+            # Проверяем обязательное поле phone
+            if not user_dict['phone']:
+                logger.warning(f"Пользователь {user_dict['name']} без телефона пропущен")
+                continue
+
             users_to_db.append(user_dict)
 
-            # Обрабатываем связи пользователь-почтовый ящик
-            mailboxes_key = find_column_key(users_metadata, 'mailboxes') or 'KqFx'
-            if mailboxes_key in user:
-                for mailbox_ref in user[mailboxes_key]:
-                    if not isinstance(mailbox_ref, dict):
-                        continue
-                    mailbox_id = mailbox_ref.get('row_id')
-                    if mailbox_id and mailbox_id in mailboxes_map:
-                        user_mailbox_relations.append({
-                            'user_seatable_id': user['_id'],
-                            'mailbox_seatable_id': mailbox_id
-                        })
+            # Собираем связи из пользователей (mailboxes в user) - на случай если есть только здесь
+            for mailbox_id in user.get('mailboxes', []):
+                relation = {
+                    'user_seatable_id': user['_id'],
+                    'mailbox_seatable_id': mailbox_id
+                }
+                if relation not in user_mailbox_relations:  # избегаем дублирования
+                    user_mailbox_relations.append(relation)
 
         except Exception as e:
             logger.error(f"Ошибка обработки пользователя {user.get('_id')}: {str(e)}")
             continue
 
+    # Удаляем возможные дубликаты связей
+    unique_relations = []
+    seen_relations = set()
+
+    for rel in user_mailbox_relations:
+        rel_tuple = (rel['user_seatable_id'], rel['mailbox_seatable_id'])
+        if rel_tuple not in seen_relations:
+            seen_relations.add(rel_tuple)
+            unique_relations.append(rel)
+
     return {
         'users': users_to_db,
         'mailboxes': mailboxes_to_db,
-        'relations': user_mailbox_relations
+        'relations': unique_relations
     }
 
 

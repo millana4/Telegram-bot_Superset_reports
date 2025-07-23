@@ -1,3 +1,4 @@
+import os
 import time
 import asyncio
 import logging
@@ -17,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 async def handle_email(email_msg):
-    """Извлекает из письма тему и вложение — только файл в формате PDF"""
+    """Извлекает из письма тему и вложения (только PDF и PNG файлы)"""
     try:
-        # Декодируем тему письма (может быть в base64 или quoted-printable)
+        # Декодируем тему письма
         subject = email_msg['Subject'] or 'Без темы'
         decoded_subject = []
         for part, encoding in decode_header(subject):
@@ -34,40 +35,68 @@ async def handle_email(email_msg):
 
         # Перебираем все части письма
         for part in email_msg.walk():
-            content_type = part.get_content_type()
+            # Пропускаем multipart-контейнеры
+            if part.get_content_maintype() == 'multipart':
+                continue
+
+            content_disposition = str(part.get("Content-Disposition", "")).lower()
             filename = part.get_filename()
-            content_disposition = str(part.get('Content-Disposition')) # Является ли вложением или встроено в контент
 
-            logger.debug(f"Часть письма: Type={content_type}, File={filename}, Disposition={content_disposition}")
-
-            # Проверяем, является ли часть вложением
-            if (part.get_content_maintype() != 'multipart' and
-                    'attachment' in content_disposition.lower()):
+            # Если есть имя файла или явно указано, что это вложение
+            if filename or 'attachment' in content_disposition:
                 try:
                     payload = part.get_payload(decode=True)
-                    if payload:
-                        logger.info(f"Найдено вложение: {filename} ({len(payload)} bytes)")
+                    if not payload:
+                        continue
 
-                        # Проверяем PDF (по content-type или расширению файла)
-                        if (content_type == 'application/pdf' or
-                                (filename and filename.lower().endswith('.pdf'))):
-                            attachments.append((filename, payload))
-                            logger.info(f"Добавлен PDF: {filename}")
-                        else:
-                            logger.warning(f"Пропущено не-PDF вложение: {filename}")
+                    # Определяем расширение файла
+                    file_extension = None
+
+                    # Вариант 1: Из имени файла
+                    if filename:
+                        filename_lower = filename.lower()
+                        logger.info(f'Имя файла {filename_lower}')
+                        if filename_lower.endswith('.pdf'):
+                            file_extension = '.pdf'
+                        elif filename_lower.endswith('.png'):
+                            file_extension = '.png'
+
+                    # Вариант 2: Из content-type
+                    if not file_extension:
+                        content_type = part.get_content_type().lower()
+                        if 'pdf' in content_type:
+                            file_extension = '.pdf'
+                        elif 'png' in content_type:
+                            file_extension = '.png'
+
+                    # Пропускаем если не PDF и не PNG
+                    if not file_extension:
+                        logger.warning(f"Пропущено вложение недопустимого типа: {filename}")
+                        continue
+
+                    # Создаем имя файла если его нет
+                    if not filename:
+                        filename = f"attachment_{int(time.time())}{file_extension}"
+                    else:
+                        # Убедимся, что у файла правильное расширение
+                        if not filename.lower().endswith(file_extension):
+                            filename = f"{os.path.splitext(filename)[0]}{file_extension}"
+
+                    logger.info(f"Найдено вложение: {filename} ({len(payload)} bytes)")
+                    attachments.append((filename, payload))
+
                 except Exception as e:
                     logger.error(f"Ошибка обработки вложения {filename}: {e}")
 
-        logger.info(f"Итого найдено PDF вложений: {len(attachments)}")
+        logger.info(f"Итого найдено PDF/PNG вложений: {len(attachments)}")
         return subject, attachments
 
     except Exception as e:
         logger.error(f"Критическая ошибка в handle_email: {e}", exc_info=True)
         raise
 
-
 async def distribute_attachments(email: str, subject: str, attachments: list[tuple[str, bytes]], loop: asyncio.AbstractEventLoop):
-    """Принимает PDF-файл, обращается к БД, ищет список пользователей и отправляем им файл"""
+    """Принимает файл, обращается к БД, ищет список пользователей и отправляем им файл"""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(User.telegram_id)
