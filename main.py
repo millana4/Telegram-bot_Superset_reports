@@ -5,14 +5,18 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 import handlers
+import custom_logging
 from config import Config
 from bot import bot
 from email_handler import imap_idle_listener
 from database.sync import start_sync
 from database.db_session import DbSessionMiddleware
 
-logging.basicConfig(level=logging.INFO)
+# Инициализация логирования
+custom_logging.setup_logging()
 logger = logging.getLogger(__name__)
+
+logger.info("Настройка логирования завершена")
 
 
 async def main():
