@@ -2,11 +2,13 @@ import os
 import time
 import asyncio
 import logging
+import email.utils
 
 from bot import bot
 from aiogram.types import BufferedInputFile
 from imap_tools import MailBox, AND
 from email.header import decode_header
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import select
 
@@ -20,6 +22,17 @@ logger = logging.getLogger(__name__)
 async def handle_email(email_msg):
     """Извлекает из письма тему и вложения (только PDF и PNG файлы)"""
     try:
+        # Получаем и парсим дату из письма (с конвертацией в московское время)
+        date_str = email_msg['Date']
+        parsed_date = email.utils.parsedate_to_datetime(date_str)
+
+        # Конвертируем UTC в московское время (+3 часа)
+        moscow_tz = timezone(timedelta(hours=3))
+        moscow_date = parsed_date.astimezone(moscow_tz)
+
+        # Форматируем дату с двоеточием между часами и минутами
+        formatted_date = moscow_date.strftime('%d.%m.%Y %H:%M')
+
         # Декодируем тему письма
         subject = email_msg['Subject'] or 'Без темы'
         decoded_subject = []
@@ -29,7 +42,11 @@ async def handle_email(email_msg):
             else:
                 decoded_subject.append(str(part))
         subject = ' '.join(decoded_subject)
-        logger.info(f"Тема письма: {subject}")
+
+        # Обрабатываем тему: удаляем [Superset] и добавляем дату
+        subject = subject.replace('[Superset]', '').strip()
+        subject = f"{subject} {formatted_date}" if subject else formatted_date
+        logger.info(f"Обработанная тема письма: {subject}")
 
         attachments = []
 
@@ -61,7 +78,7 @@ async def handle_email(email_msg):
                         elif filename_lower.endswith('.png'):
                             file_extension = '.png'
 
-                    # Вариант 2: Из content-type
+                    # Вариант 2: Из content-type (добавлено для PNG)
                     if not file_extension:
                         content_type = part.get_content_type().lower()
                         if 'pdf' in content_type:
@@ -76,11 +93,15 @@ async def handle_email(email_msg):
 
                     # Создаем имя файла если его нет
                     if not filename:
-                        filename = f"attachment_{int(time.time())}{file_extension}"
+                        filename = f"attachment_{formatted_date.replace(':', '_')}{file_extension}"
                     else:
-                        # Убедимся, что у файла правильное расширение
-                        if not filename.lower().endswith(file_extension):
-                            filename = f"{os.path.splitext(filename)[0]}{file_extension}"
+                        # Для PDF добавляем дату (уже с двоеточием)
+                        if file_extension == '.pdf':
+                            base_name = os.path.splitext(filename)[0]
+                            filename = f"{base_name} {formatted_date}{file_extension}"
+                        # Для PNG добавляем расширение, если его нет
+                        elif file_extension == '.png' and not filename.lower().endswith('.png'):
+                            filename = f"{filename}.png"
 
                     logger.info(f"Найдено вложение: {filename} ({len(payload)} bytes)")
                     attachments.append((filename, payload))
