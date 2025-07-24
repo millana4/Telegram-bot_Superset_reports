@@ -9,8 +9,10 @@ import custom_logging
 from config import Config
 from bot import bot
 from email_handler import imap_idle_listener
+from database import engine
 from database.sync import start_sync
 from database.db_session import DbSessionMiddleware
+from database.models import Base
 
 # Инициализация логирования
 custom_logging.setup_logging()
@@ -20,6 +22,11 @@ logger.info("Настройка логирования завершена")
 
 
 async def main():
+    # Проверка и создание таблиц (если не существуют)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        logger.info("Проверка структуры БД завершена")
+
     dp = Dispatcher(storage=MemoryStorage())
     # Регистрирую роутер для обработки действий пользователей (старт, авторизация)
     dp.include_router(handlers.router)
