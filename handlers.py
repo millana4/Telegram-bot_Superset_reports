@@ -3,28 +3,27 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import ReplyKeyboardRemove
 import logging
 
-from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import User
 from utils import normalize_phone
 from keyboards import share_contact_kb
+from seatable_api import check_id_telegram, register_id_telegram
 
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 @router.message(CommandStart())
-async def cmd_start(message: types.Message, session: AsyncSession):
+async def cmd_start(message: types.Message):
     """Обработчик нажатия кнопки Старт"""
-    telegram_id = message.from_user.id
-    logger.info("User %s нажал кнопку Старт", telegram_id)
+    id_telegram = message.from_user.id
+    logger.info("Пользователь %s нажал кнопку Старт", id_telegram)
 
-    # Проверяем, есть ли пользователь с таким telegram_id
-    result = await session.execute(select(User).where(User.telegram_id == telegram_id))
-    user = result.scalar_one_or_none()
+    # Проверяем, есть ли пользователь с таким id_telegram
+    already_member = await check_id_telegram(id_telegram)
+    logger.info(f"Пользователь %s есть в таблице Seatable — {already_member}", id_telegram)
 
-    if user:
+    if already_member:
         await message.answer("👋 Приветствуем! Вы подписаны на уведомления от Superset.")
         return
 
@@ -36,24 +35,18 @@ async def cmd_start(message: types.Message, session: AsyncSession):
 
 
 @router.message(F.contact)
-async def handle_contact(message: types.Message, session: AsyncSession):
+async def handle_contact(message: types.Message):
     """Обработка контакта для авторизации"""
     contact = message.contact
-    telegram_id = message.from_user.id
+    id_telegram = message.from_user.id
 
     normalized_phone = normalize_phone(contact.phone_number)
     logger.info("Пользователь прислал номер: %s (нормализован: %s)", contact.phone_number, normalized_phone)
 
-    # Ищем пользователя по номеру
-    result = await session.execute(select(User).where(User.phone == normalized_phone))
-    user = result.scalar_one_or_none()
+    # Добавляем id_telegram пользователя в таблицу Seatable
+    success = await register_id_telegram(normalized_phone, id_telegram)
 
-    if user:
-        # Обновляем telegram_id
-        await session.execute(
-            update(User).where(User.id == user.id).values(telegram_id=telegram_id)
-        )
-        await session.commit()
+    if success:
         await message.answer(
             "👋 Приветствуем! Вы подписались на уведомления от Superset.",
             reply_markup=ReplyKeyboardRemove()

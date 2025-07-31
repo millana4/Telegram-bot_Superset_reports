@@ -8,13 +8,9 @@ from bot import bot
 from aiogram.types import BufferedInputFile
 from imap_tools import MailBox, AND
 from email.header import decode_header
-from datetime import datetime, timezone, timedelta
+from datetime import timezone, timedelta
 
 from sqlalchemy import select
-
-from database import AsyncSessionLocal
-from database.crud import update_last_uid, get_last_uid
-from database.models import User, user_mailbox, Mailbox
 
 logger = logging.getLogger(__name__)
 

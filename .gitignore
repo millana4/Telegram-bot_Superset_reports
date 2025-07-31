@@ -4,6 +4,7 @@ venv/
 
 # Файлы окружения
 .env
+.env.24-jul-25
 
 # PyCharm и другие IDE
 .idea/
