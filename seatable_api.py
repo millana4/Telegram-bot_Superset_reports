@@ -209,139 +209,201 @@ async def register_id_telegram(phone: str, id_telegram: str) -> bool:
         return False
 
 
-# Пока не используется, но может пригодиться
-async def get_table_columns(table_name: str) -> Optional[Dict[str, str]]:
-    """
-    Получает отображение внутреннего имени колонки в виде словаря:
-    {'0000': 'Name', 'Cv8Z': 'phone', 'KqFx': 'mailboxes', 'fz8p': 'id_telegram'}
-    """
-    token_data = await get_base_token()
-    if not token_data:
-        logger.error("Не удалось получить токен SeaTable")
-        return []
-
-    access_token = token_data["access_token"]
-    dtable_uuid = token_data["dtable_uuid"]
-    base_url = token_data["dtable_server"].rstrip("/")
-
-    url = f"{base_url}/api/v1/dtables/{dtable_uuid}/columns/"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json"
-    }
-    params = {"table_name": table_name}
-
+async def get_users_to_send(email: str) -> list[str]:
+    """Получает список id_telegram пользователей, подписанных на указанный email"""
     try:
+        token_data = await get_base_token()
+        if not token_data:
+            logger.error("Не удалось получить токен SeaTable")
+            return []
+
+        base_url = f"{token_data['dtable_server']}api/v1/dtables/{token_data['dtable_uuid']}/rows/"
+        headers = {
+            "Authorization": f"Bearer {token_data['access_token']}",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+
+        # Поиск mailbox по email
+        mailboxes_params = {"table_name": Config.SEATABLE_MAILBOXES_TABLE_ID}
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params) as response:
-                response.raise_for_status()
-                metadata = await response.json()
-
-                # Для отладки можно вывести в консоль полный ответ по метаданным
-                # print("metadata type:", type(metadata))
-                # print("metadata sample:", metadata)
-
-                column_map = {col["key"]: col["name"] for col in metadata.get("columns", [])}
-                return column_map
-
-    except aiohttp.ClientError as e:
-        logger.error(f"Ошибка при запросе метаданных таблицы {table_name}: {str(e)}")
-    except Exception as e:
-        logger.error(f"Непредвиденная ошибка при получении колонок таблицы {table_name}: {str(e)}")
-
-    return None
-
-
-
-async def fetch_table(table_name: str) -> List[Dict]:
-    """
-    Получает строки из указанной таблицы Seatable (users или mailboxes).
-    Возвращает список словарей.
-    Пример словаря для users:
-    [
-        {
-            'Name': 'usertest01_seller',
-            '_ctime': '2025-07-08T11:58:08.914+00:00',
-            '_id': 'id_text_format',
-            '_mtime': '2025-07-14T13:59:10.958+00:00',
-            'mailboxes': ['id_text_format'],
-            'phone': '+7981ХХХХХХХ'
-        },
-    ]
-    Пример словаря для mailboxes:
-    [
-        {
-            'Name': 'sale',
-            '_ctime': '2025-07-08T12:06:44.441+00:00',
-            '_id': 'id_text_format',
-            '_mtime': '2025-07-14T14:03:12.951+00:00',
-            'description': 'дашборды по продажам',
-            'email': 'box1@mail.ru',
-            'users': ['id_text_format', 'id_text_format']
-        },
-    ]
-    """
-
-    token_data = await get_base_token()
-    if not token_data:
-        logger.error("Не удалось получить токен SeaTable")
-        return []
-
-    access_token = token_data["access_token"]
-    dtable_uuid = token_data["dtable_uuid"]
-    base_url = token_data["dtable_server"].rstrip("/")
-
-    url = f"{base_url}/api/v1/dtables/{dtable_uuid}/rows/"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json"
-    }
-    params = {"table_name": table_name}
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params) as response:
-                if response.status != 200:
-                    error = await response.text()
-                    logger.error(f"Ошибка запроса данных из таблицы '{table_name}': {response.status} - {error}")
+            async with session.get(base_url, headers=headers, params=mailboxes_params) as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    logger.error(f"Ошибка получения mailboxes. Status: {resp.status}, Response: {error_text}")
                     return []
 
-                data = await response.json()
-                return data.get("rows", [])
+                mailboxes_data = await resp.json()
+                logger.info(f"Получено mailboxes: {len(mailboxes_data.get('rows', []))} записей")
+
+                target_mailbox = None
+                found_emails = []  # Для логирования всех email в таблице
+
+                for mailbox in mailboxes_data.get("rows", []):
+                    current_email = str(mailbox.get("email", ""))
+                    found_emails.append(current_email)
+
+                    if current_email == str(email):
+                        target_mailbox = mailbox
+                        logger.info(f"Найден mailbox: {mailbox}")
+                        break
+
+                if not target_mailbox:
+                    logger.error(f"Mailbox {email} не найден. Доступные email: {', '.join(found_emails)}")
+                    return []
+
+                # Получаем список пользователей из поля users
+                user_ids = target_mailbox.get("users", [])
+                logger.info(f"Найдены user_ids для {email}: {user_ids}")
+
+                if not user_ids:
+                    logger.error(f"Для ящика {email} поле users пустое или отсутствует")
+                    return []
+
+                # Получаем telegram_ids из таблицы users
+                users_params = {"table_name": Config.SEATABLE_USERS_TABLE_ID}
+
+                async with session.get(base_url, headers=headers, params=users_params) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        logger.error(f"Ошибка получения users. Status: {resp.status}, Response: {error_text}")
+                        return []
+
+                    users_data = await resp.json()
+                    users_rows = users_data.get("rows", [])
+                    logger.info(f"Получено users: {len(users_rows)} записей")
+
+                    # Собираем id_telegram нужных пользователей
+                    valid_users = []
+
+                    for user in users_rows:
+                        id_seatable = user.get("_id")
+                        tg_id = user.get("id_telegram")
+                        if id_seatable in user_ids and tg_id:
+                            valid_users.append(str(tg_id))
+                    logger.info(f"Подходящие пользователи: {valid_users}")
+
+                    return valid_users
 
     except Exception as e:
-        logger.error(f"Ошибка запроса к Seatable: {str(e)}")
+        logger.error(f"Критическая ошибка в get_users_idtg_to_send: {str(e)}", exc_info=True)
         return []
 
 
 async def get_last_uid(email: str) -> str | None:
-    """Получает last_uid (id последнего обработанного в рассылке письма) из таблицы Mailbox по email"""
+    """Получает last_uid (id последнего обработанного письма) из таблицы Mailbox по email"""
     try:
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(Mailbox.last_uid).where(Mailbox.email == email)
-            )
-            return result.scalar_one_or_none()
+        # Получаем токен доступа
+        token_data = await get_base_token()
+        if not token_data:
+            logger.error("Не удалось получить токен SeaTable")
+            return None
+
+        # Формируем URL и заголовки
+        base_url = f"{token_data['dtable_server']}api/v1/dtables/{token_data['dtable_uuid']}/rows/"
+        headers = {
+            "Authorization": f"Bearer {token_data['access_token']}",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        params = {"table_name": Config.SEATABLE_MAILBOXES_TABLE_ID}
+
+        # Делаем запрос к API
+        async with aiohttp.ClientSession() as session:
+            async with session.get(base_url, headers=headers, params=params) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Ошибка запроса last_uid: {response.status}. Ответ: {error_text}")
+                    return None
+
+                data = await response.json()
+
+                # Ищем запись с нужным email
+                for row in data.get("rows", []):
+                    if str(row.get("email")) == str(email):
+                        last_uid = row.get("last_uid")
+                        logger.debug(f"Найден last_uid для {email}: {last_uid}")
+                        return last_uid if last_uid else None
+
+                logger.info(f"Почтовый ящик {email} не найден в таблице")
+                return None
+
     except Exception as e:
-        logger.error(f"Ошибка получения last_uid: {e}")
-        raise
+        logger.error(f"Ошибка при получении last_uid: {str(e)}", exc_info=True)
+        return None
 
 
-async def update_last_uid(email: str, uid: str):
-    """Обновляет last_uid для Mailbox"""
+async def update_last_uid(email: str, uid: str) -> bool:
+    """Обновляет last_uid для почтового ящика в таблице Mailbox"""
     try:
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(Mailbox).where(Mailbox.email == email)
-            )
-            mailbox = result.scalar_one_or_none()
-            if mailbox:
-                mailbox.last_uid = uid
-                await session.commit()
-                logger.debug(f"[{email}] last_uid обновлён: {uid}")
+        # Получаем токен доступа
+        token_data = await get_base_token()
+        if not token_data:
+            logger.error("Не удалось получить токен SeaTable")
+            return False
+
+        # Формируем URL и заголовки
+        base_url = f"{token_data['dtable_server']}api/v1/dtables/{token_data['dtable_uuid']}/rows/"
+        headers = {
+            "Authorization": f"Bearer {token_data['access_token']}",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        params = {
+            "table_name": Config.SEATABLE_MAILBOXES_TABLE_ID,
+            "convert_keys": "false"
+        }
+
+        async with aiohttp.ClientSession() as session:
+            # Получаем все записи из таблицы
+            async with session.get(base_url, headers=headers, params=params) as resp:
+                if resp.status != 200:
+                    logger.error(f"Ошибка получения данных: {resp.status} - {await resp.text()}")
+                    return False
+
+                data = await resp.json()
+                rows = data.get("rows", [])
+
+                # Ищем запись с нужным email
+                matched_row = None
+                for row in rows:
+                    if str(row.get("email")) == str(email):
+                        matched_row = row
+                        break
+
+                if not matched_row:
+                    logger.error(f"Почтовый ящик {email} не найден в таблице")
+                    return False
+
+                row_id = matched_row.get("_id")
+                if not row_id:
+                    logger.error("У найденной строки отсутствует _id")
+                    return False
+
+                logger.debug(f"Найдена запись для обновления (ID: {row_id})")
+
+                # Подготавливаем данные для обновления
+                update_data = {
+                    "table_name": Config.SEATABLE_MAILBOXES_TABLE_ID,
+                    "row_id": row_id,
+                    "row": {
+                        "last_uid": str(uid)  # Обновляем только last_uid
+                    }
+                }
+
+                # Отправляем обновление
+                async with session.put(base_url, headers=headers, json=update_data) as resp:
+                    if resp.status != 200:
+                        logger.error(f"Ошибка обновления: {resp.status} - {await resp.text()}")
+                        return False
+
+                    logger.info(f"Успешно обновлен last_uid для {email}: {uid}")
+                    return True
+
     except Exception as e:
-        logger.error(f"Ошибка обновления last_uid: {e}")
-        raise
+        logger.error(f"Ошибка при обновлении last_uid: {str(e)}", exc_info=True)
+        return False
+
 
 # Отладочный скрипт для вывода ответов json по API SeaTable
 # if __name__ == "__main__":
@@ -353,6 +415,20 @@ async def update_last_uid(email: str, uid: str):
 #         print("Таблица пользователей, шапка:")
 #         user_table = await get_table_columns(Config.SEATABLE_USERS_TABLE_ID)
 #         print(user_table)
+#
+#         print("Проверка get для last_uid")
+#         last_uid = await get_last_uid("example@domain.com")
+#         if last_uid:
+#             print(f"Последний UID: {last_uid}")
+#         else:
+#             print("UID не найден или произошла ошибка")
+#
+#         print("Проверка update для last_uid")
+#         success = await update_last_uid("example@domain.com", "12345")
+#         if success:
+#             print("UID успешно обновлен")
+#         else:
+#             print("Ошибка обновления UID")
 #
 #     asyncio.run(
 #         main())

@@ -3,8 +3,6 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import ReplyKeyboardRemove
 import logging
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from utils import normalize_phone
 from keyboards import share_contact_kb
 from seatable_api import check_id_telegram, register_id_telegram

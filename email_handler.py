@@ -5,18 +5,21 @@ import logging
 import email.utils
 
 from bot import bot
+from seatable_api import get_last_uid, update_last_uid, get_users_to_send
 from aiogram.types import BufferedInputFile
 from imap_tools import MailBox, AND
 from email.header import decode_header
 from datetime import timezone, timedelta
 
-from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
 
 async def handle_email(email_msg):
-    """Извлекает из письма тему и вложения (только PDF и PNG файлы)"""
+    """
+    Извлекает из письма тему и вложения (только PDF и PNG файлы).
+    Редактирует тему письма, чтобы она была информативной для читателей.
+    """
     try:
         # Получаем и парсим дату из письма (с конвертацией в московское время)
         date_str = email_msg['Date']
@@ -112,22 +115,19 @@ async def handle_email(email_msg):
         logger.error(f"Критическая ошибка в handle_email: {e}", exc_info=True)
         raise
 
-async def distribute_attachments(email: str, subject: str, attachments: list[tuple[str, bytes]], loop: asyncio.AbstractEventLoop):
-    """Принимает файл, обращается к БД, ищет список пользователей и отправляем им файл"""
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(User.telegram_id)
-            .join(user_mailbox)
-            .join(Mailbox)
-            .where(Mailbox.email == email)
-            .where(User.telegram_id.isnot(None))
-        )
-        telegram_ids = [row[0] for row in result.all()]
+
+async def distribute_attachments(email: str, subject: str, attachments: list[tuple[str, bytes]],
+                                 loop: asyncio.AbstractEventLoop):
+    """Рассылает вложения пользователям, подписанным на указанный email"""
+    try:
+        # Получаем список telegram_id
+        telegram_ids = await get_users_to_send(email)
 
         if not telegram_ids:
-            logger.info(f"[{email}] Нет подписчиков для рассылки.")
+            logger.error(f"[{email}] Нет подписчиков для рассылки")
             return
 
+        # Рассылаем вложения
         for telegram_id in telegram_ids:
             for filename, content in attachments:
                 try:
@@ -139,6 +139,9 @@ async def distribute_attachments(email: str, subject: str, attachments: list[tup
                     logger.info(f"[{email}] Отправлено пользователю {telegram_id}: {filename}")
                 except Exception as e:
                     logger.error(f"[{email}] Ошибка отправки пользователю {telegram_id}: {e}")
+
+    except Exception as e:
+        logger.error(f"[{email}] Критическая ошибка рассылки: {str(e)}", exc_info=True)
 
 
 async def resend_report(message, account_email: str, loop: asyncio.AbstractEventLoop):
@@ -207,6 +210,9 @@ def imap_idle_listener(account, loop):
 
                     # Фильтруем только новые письма
                     unseen_messages = [m for m in messages if int(m.uid) > last_uid]
+                    if any(int(m.uid) < last_uid for m in messages):
+                        print(
+                            f"[{account['email']}] ERROR: Обнаружены письма с UID меньше последнего обработанного ({last_uid}). Они будут проигнорированы.")
 
                     if not unseen_messages:
                         print(f"[{account['email']}] Новых непрочитанных писем нет.")
