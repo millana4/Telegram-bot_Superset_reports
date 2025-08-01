@@ -290,6 +290,87 @@ async def get_users_to_send(email: str) -> list[str]:
         return []
 
 
+async def register_group(chat_id: int, chat_title: str) -> bool:
+    """Обращается по API к Seatable, ищет группу по названию и записывает её id_telegram_chat."""
+    logger.info(f"Начало регистрации группы: {chat_title} ({chat_id})")
+    try:
+        # Получаем токен
+        token_data = await get_base_token()
+        if not token_data:
+            logger.error("Не удалось получить токен SeaTable")
+            return False
+
+        base_url = f"{token_data['dtable_server']}api/v1/dtables/{token_data['dtable_uuid']}/rows/"
+        headers = {
+            "Authorization": f"Bearer {token_data['access_token']}",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+
+        # Используем названия колонок
+        name_column = "Name"  # Колонка с названиями групп
+        id_chat_column = "id_telegram_chat"  # Колонка для id чата
+
+        # Получаем параметры
+        params = {
+            "table_name": Config.SEATABLE_T_CHATS_TABLE_ID,
+            "convert_keys": "false"
+        }
+
+        async with aiohttp.ClientSession() as session:
+            # Запрашиваем все строки
+            async with session.get(base_url, headers=headers, params=params) as resp:
+                if resp.status != 200:
+                    logger.error(f"Ошибка получения данных: {resp.status}")
+                    return False
+
+                data = await resp.json()
+                rows = data.get("rows", [])
+
+                # Ищем точное совпадение по названию группы
+                matched_row = None
+                for row in rows:
+                    if name_column in row and str(row[name_column]).strip() == chat_title.strip():
+                        matched_row = row
+                        break
+
+                if not matched_row:
+                    logger.error("Группа не найдена. Проверьте:")
+                    logger.error(f"- Название группы в Telegram: '{chat_title}'")
+                    logger.error(f"- Названия групп в таблице: {[str(r.get(name_column, '')) for r in rows if name_column in r]}")
+                    logger.error(f"- Колонка с названиями: {name_column}")
+                    return False
+
+                row_id = matched_row.get("_id")
+                if not row_id:
+                    logger.error("У строки нет ID")
+                    return False
+
+                logger.info(f"Найдена строка группы для обновления (ID: {row_id})")
+
+                # Подготовка обновления
+                update_data = {
+                    "table_name": Config.SEATABLE_T_CHATS_TABLE_ID,
+                    "row_id": row_id,
+                    "row": {
+                        id_chat_column: str(chat_id)
+                    }
+                }
+
+                # Отправка обновления
+                async with session.put(base_url, headers=headers, json=update_data) as resp:
+                    if resp.status != 200:
+                        logger.error(f"Ошибка обновления: {resp.status} - {await resp.text()}")
+                        return False
+
+                    logger.info(f"ID чата {chat_id} успешно добавлен для группы '{chat_title}'")
+                    return True
+
+    except Exception as e:
+        logger.error(f"Критическая ошибка при регистрации группы: {str(e)}", exc_info=True)
+        return False
+
+
 async def get_last_uid(email: str) -> str | None:
     """Получает last_uid (id последнего обработанного письма) из таблицы Mailbox по email"""
     try:

@@ -9,6 +9,7 @@ import custom_logging
 from config import Config
 from bot import bot
 from email_handler import imap_idle_listener
+from telegram_api import router as chat_member
 
 # Инициализация логирования
 custom_logging.setup_logging()
@@ -19,8 +20,8 @@ logger.info("Настройка логирования завершена")
 
 async def main():
     dp = Dispatcher(storage=MemoryStorage())
-    # Регистрирую роутер для обработки действий пользователей (старт, авторизация)
-    dp.include_router(handlers.router)
+    dp.include_router(handlers.router) # роутер для обработки действий пользователей (старт, авторизация)
+    dp.include_router(chat_member)  # роутер ловит события, когда бота добавляют в группу
 
     # Удаляем вебхук (на всякий случай)
     await bot.delete_webhook(drop_pending_updates=True)
