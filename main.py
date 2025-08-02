@@ -20,8 +20,8 @@ logger.info("Настройка логирования завершена")
 
 async def main():
     dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(handlers.router) # роутер для обработки действий пользователей (старт, авторизация)
     dp.include_router(chat_member)  # роутер ловит события, когда бота добавляют в группу
+    dp.include_router(handlers.router) # роутер для обработки действий пользователей (старт, авторизация)
 
     # Удаляем вебхук (на всякий случай)
     await bot.delete_webhook(drop_pending_updates=True)

@@ -9,16 +9,18 @@ logger = logging.getLogger(__name__)
 
 @router.my_chat_member()
 async def on_my_chat_member_updated(event: ChatMemberUpdated):
+    """Отслеживает, как меняется статус бота — в какую группу его добавляют, становится там участником
+    или администратором, или покидает группу. Если бот становится администратором в группе, то вызывается
+    функция регистрации группы. Остальные изменения статусов игнорируются."""
     logger.info(f"Получено событие my_chat_member: {event.model_dump()}")
 
-    if (event.old_chat_member.status in ("left", "kicked") and
-            event.new_chat_member.status in ("member", "administrator", "creator") and
+    if (event.new_chat_member.status in ("administrator", "creator") and
             event.new_chat_member.user.id == event.bot.id):
 
         chat_id = event.chat.id
         chat_title = event.chat.title
 
-        logger.info(f"Бот добавлен в группу: {chat_title} (ID: {chat_id})")
+        logger.info(f"Бот стал администратором в группе: {chat_title} (ID: {chat_id})")
 
         try:
             success = await register_group(chat_id, chat_title)
@@ -27,4 +29,4 @@ async def on_my_chat_member_updated(event: ChatMemberUpdated):
         except Exception as e:
             logger.error(f"Ошибка при регистрации группы: {str(e)}", exc_info=True)
     else:
-        logger.info("Событие не соответствует условиям обработки")
+        logger.info(f"Событие не соответствует условиям обработки. Статусы: old={event.old_chat_member.status}, new={event.new_chat_member.status}")

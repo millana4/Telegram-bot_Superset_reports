@@ -289,9 +289,10 @@ async def get_users_to_send(email: str) -> list[str]:
         logger.error(f"Критическая ошибка в get_users_idtg_to_send: {str(e)}", exc_info=True)
         return []
 
-
 async def register_group(chat_id: int, chat_title: str) -> bool:
-    """Обращается по API к Seatable, ищет группу по названию и записывает её id_telegram_chat."""
+    """Обращается по API к Seatable, ищет группу по названию и записывает её id_telegram_chat.
+    После записи, группа блокируется для перезаписи. То есть нельзя будет создать группу с таким же названием,
+    перерегистрировать id_telegram_chat и перехватить рассылку."""
     logger.info(f"Начало регистрации группы: {chat_title} ({chat_id})")
     try:
         # Получаем токен
@@ -310,6 +311,7 @@ async def register_group(chat_id: int, chat_title: str) -> bool:
         # Используем названия колонок
         name_column = "Name"  # Колонка с названиями групп
         id_chat_column = "id_telegram_chat"  # Колонка для id чата
+        lock_column = "is_locked"  # Колонка для блокировки
 
         # Получаем параметры
         params = {
@@ -346,14 +348,20 @@ async def register_group(chat_id: int, chat_title: str) -> bool:
                     logger.error("У строки нет ID")
                     return False
 
+                # Проверяем блокировку
+                if lock_column in matched_row and matched_row[lock_column]:
+                    logger.error(f"Группа '{chat_title}' заблокирована для изменений")
+                    return False
+
                 logger.info(f"Найдена строка группы для обновления (ID: {row_id})")
 
-                # Подготовка обновления
+                # Подготовка обновления (ID чата + блокировка)
                 update_data = {
                     "table_name": Config.SEATABLE_T_CHATS_TABLE_ID,
                     "row_id": row_id,
                     "row": {
-                        id_chat_column: str(chat_id)
+                        id_chat_column: str(chat_id),
+                        lock_column: True  # Блокируем после записи
                     }
                 }
 
@@ -363,7 +371,7 @@ async def register_group(chat_id: int, chat_title: str) -> bool:
                         logger.error(f"Ошибка обновления: {resp.status} - {await resp.text()}")
                         return False
 
-                    logger.info(f"ID чата {chat_id} успешно добавлен для группы '{chat_title}'")
+                    logger.info(f"ID чата {chat_id} успешно добавлен и группа '{chat_title}' заблокирована для перезаписи.")
                     return True
 
     except Exception as e:
