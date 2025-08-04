@@ -9,6 +9,8 @@ class Config:
     IMAP_SERVER = os.getenv("IMAP_SERVER")
     IMAP_EMAIL_SR03 = os.getenv("IMAP_EMAIL_SR03")
     IMAP_PASSWORD_SR03 = os.getenv("IMAP_PASSWORD_SR03")
+    IMAP_EMAIL_SR04 = os.getenv("IMAP_EMAIL_SR04")
+    IMAP_PASSWORD_SR04 = os.getenv("IMAP_PASSWORD_SR04")
 
     SEATABLE_API_TOKEN = os.getenv("SEATABLE_API_TOKEN")
     SEATABLE_SERVER = os.getenv("SEATABLE_SERVER")

@@ -35,10 +35,14 @@ async def main():
             "password": Config.IMAP_PASSWORD_SR03,
             "imap": Config.IMAP_SERVER
         },
+        {
+            "email": Config.IMAP_EMAIL_SR04,
+            "password": Config.IMAP_PASSWORD_SR04,
+            "imap": Config.IMAP_SERVER
+        },
     ]
 
     loop = asyncio.get_running_loop()
-
 
     # Запускаем IMAP‑слушателей
     for account in accounts:

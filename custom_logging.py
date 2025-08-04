@@ -35,6 +35,6 @@ def setup_logging():
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
-    # Уменьшаем логирование для библиотек
+    # Логирование для библиотек
     logging.getLogger('aiogram').setLevel(logging.INFO)
     logging.getLogger('sqlalchemy').setLevel(logging.INFO)

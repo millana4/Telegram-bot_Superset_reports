@@ -5,7 +5,7 @@ import logging
 import email.utils
 
 from bot import bot
-from seatable_api import get_last_uid, update_last_uid, get_users_to_send
+from seatable_api import get_last_uid, update_last_uid, get_users_to_send, get_chats_to_send
 from aiogram.types import BufferedInputFile
 from imap_tools import MailBox, AND
 from email.header import decode_header
@@ -94,7 +94,7 @@ async def handle_email(email_msg):
                     if not filename:
                         filename = f"attachment_{formatted_date.replace(':', '_')}{file_extension}"
                     else:
-                        # Для PDF добавляем дату (уже с двоеточием)
+                        # Для PDF добавляем дату
                         if file_extension == '.pdf':
                             base_name = os.path.splitext(filename)[0]
                             filename = f"{base_name} {formatted_date}{file_extension}"
@@ -120,11 +120,15 @@ async def distribute_attachments(email: str, subject: str, attachments: list[tup
                                  loop: asyncio.AbstractEventLoop):
     """Рассылает вложения пользователям, подписанным на указанный email"""
     try:
-        # Получаем список telegram_id
-        telegram_ids = await get_users_to_send(email)
+        # Получаем список telegram_id пользователей
+        telegram_users_ids = await get_users_to_send(email)
+        # Получаем список telegram_id групп
+        telegram_chats_ids = await get_chats_to_send(email)
+
+        telegram_ids = telegram_users_ids + telegram_chats_ids
 
         if not telegram_ids:
-            logger.error(f"[{email}] Нет подписчиков для рассылки")
+            logger.error(f"[{email}] Нет подписчиков или групп для рассылки")
             return
 
         # Рассылаем вложения
@@ -166,7 +170,7 @@ async def resend_report(message, account_email: str, loop: asyncio.AbstractEvent
 
 
 def imap_idle_listener(account, loop):
-    """Слушает входящие письма на одном аккаунте через IMAP IDLE."""
+    """Слушает входящие письма на одном почтовом аккаунте через IMAP IDLE."""
     while True:
         try:
             with MailBox(account["imap"]).login(account["email"], account["password"]) as mailbox:

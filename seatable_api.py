@@ -379,6 +379,87 @@ async def register_group(chat_id: int, chat_title: str) -> bool:
         return False
 
 
+async def get_chats_to_send(email: str) -> list[str]:
+    """Получает список id_telegram групп (чатов), подписанных на указанный email"""
+    try:
+        token_data = await get_base_token()
+        if not token_data:
+            logger.error("Не удалось получить токен SeaTable")
+            return []
+
+        base_url = f"{token_data['dtable_server']}api/v1/dtables/{token_data['dtable_uuid']}/rows/"
+        headers = {
+            "Authorization": f"Bearer {token_data['access_token']}",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+
+        # Поиск чатов по email
+        t_chats_params = {"table_name": Config.SEATABLE_MAILBOXES_TABLE_ID}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(base_url, headers=headers, params=t_chats_params) as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    logger.error(f"Ошибка получения t_chats. Status: {resp.status}, Response: {error_text}")
+                    return []
+
+                t_chats_data = await resp.json()
+                logger.info(f"Получено t_chats: {len(t_chats_data.get('rows', []))} записей")
+
+                target_t_chats = None
+                found_emails = []  # Для логирования всех email в таблице
+
+                for t_chat in t_chats_data.get("rows", []):
+                    current_email = str(t_chat.get("email", ""))
+                    found_emails.append(current_email)
+
+                    if current_email == str(email):
+                        target_t_chats = t_chat
+                        logger.info(f"Найден чат: {t_chat}")
+                        break
+
+                if not target_t_chats:
+                    logger.error(f"Mailbox {email} не найден. Доступные email: {', '.join(found_emails)}")
+                    return []
+
+                # Получаем список чатов из поля
+                t_chats_ids = target_t_chats.get("t_chats", [])
+                logger.info(f"Найдены t_chats_ids для {email}: {t_chats_ids}")
+
+                if not t_chats_ids:
+                    logger.error(f"Для ящика {email} поле t_chats пустое или отсутствует")
+                    return []
+
+                # Получаем telegram_ids из таблицы t_chats
+                t_chats_params = {"table_name": Config.SEATABLE_T_CHATS_TABLE_ID}
+
+                async with session.get(base_url, headers=headers, params=t_chats_params) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        logger.error(f"Ошибка получения t_chats. Status: {resp.status}, Response: {error_text}")
+                        return []
+
+                    t_chats_data = await resp.json()
+                    t_chats_rows = t_chats_data.get("rows", [])
+                    logger.info(f"Получено users: {len(t_chats_rows)} записей")
+
+                    # Собираем id_telegram нужных чатов
+                    valid_t_chats = []
+
+                    for t_chat in t_chats_rows:
+                        id_seatable = t_chat.get("_id")
+                        tg_id = t_chat.get("id_telegram_chat")
+                        if id_seatable in t_chats_ids and tg_id:
+                            valid_t_chats.append(str(tg_id))
+                    logger.info(f"Подходящие чаты для рассылки: {valid_t_chats}")
+
+                    return valid_t_chats
+
+    except Exception as e:
+        logger.error(f"Критическая ошибка в get_chats_to_send: {str(e)}", exc_info=True)
+        return []
+
+
 async def get_last_uid(email: str) -> str | None:
     """Получает last_uid (id последнего обработанного письма) из таблицы Mailbox по email"""
     try:
