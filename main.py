@@ -31,6 +31,16 @@ async def main():
 
     accounts = [
         {
+            "email": Config.IMAP_EMAIL_SR01,
+            "password": Config.IMAP_PASSWORD_SR01,
+            "imap": Config.IMAP_SERVER
+        },
+        {
+            "email": Config.IMAP_EMAIL_SR02,
+            "password": Config.IMAP_PASSWORD_SR02,
+            "imap": Config.IMAP_SERVER
+        },
+        {
             "email": Config.IMAP_EMAIL_SR03,
             "password": Config.IMAP_PASSWORD_SR03,
             "imap": Config.IMAP_SERVER

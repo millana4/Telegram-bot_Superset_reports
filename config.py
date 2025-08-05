@@ -7,6 +7,10 @@ class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN")
 
     IMAP_SERVER = os.getenv("IMAP_SERVER")
+    IMAP_EMAIL_SR01 = os.getenv("IMAP_EMAIL_SR01")
+    IMAP_PASSWORD_SR01 = os.getenv("IMAP_PASSWORD_SR01")
+    IMAP_EMAIL_SR02 = os.getenv("IMAP_EMAIL_SR02")
+    IMAP_PASSWORD_SR02 = os.getenv("IMAP_PASSWORD_SR02")
     IMAP_EMAIL_SR03 = os.getenv("IMAP_EMAIL_SR03")
     IMAP_PASSWORD_SR03 = os.getenv("IMAP_PASSWORD_SR03")
     IMAP_EMAIL_SR04 = os.getenv("IMAP_EMAIL_SR04")
